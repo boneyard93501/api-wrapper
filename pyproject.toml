@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fluence-cli"
+version = "0.1.0"
+description = "Command line tool for managing Fluence VMs"
+authors = [
+    {name = "Fluence CLI Team", email = "your-email@example.com"},
+]
+readme = "README.md"
+requires-python = ">=3.7"
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+]
+dependencies = [
+    "click>=8.0.0",
+    "requests>=2.25.0",
+    "python-dotenv>=0.15.0",
+    "pyyaml>=5.4.0",
+    "rich>=10.0.0",
+]
+
+[project.scripts]
+flu-cli = "fluence_cli.cli:main"
+
+[tool.setuptools]
+packages = ["fluence_cli"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py37"
