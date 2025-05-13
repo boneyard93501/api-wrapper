@@ -1,5 +1,5 @@
 """
-Main CLI entry point for the Fluence CLI with global format and debug options.
+Main CLI entry point for the Fluence CLI.
 """
 
 import os
