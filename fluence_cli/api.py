@@ -1,5 +1,5 @@
 """
-API client for interacting with the Fluence API with estimate method.
+API client for interacting with the Fluence API.
 """
 
 import time
