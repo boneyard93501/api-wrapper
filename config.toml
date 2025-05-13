@@ -1,0 +1,28 @@
+# Fluence VM Configuration
+
+[constraints]
+basicConfiguration = "cpu-2-ram-4gb-storage-25gb"
+
+[constraints.datacenter]
+countries = ["US"]
+
+[[constraints.hardware.cpu]]
+manufacturer = "AMD"
+architecture = "ZEN"
+
+instances = 1
+
+[vmConfiguration]
+name = "fluence-vm"
+osImage = <"your image url>"             # <- update
+sshKeys = ["your public ssh key"]        # <- update
+
+[[vmConfiguration.openPorts]]
+# opened by default
+port = 22
+protocol = "tcp"
+
+# optional
+[[vmConfiguration.openPorts]]
+port = 80
+protocol = "tcp"
