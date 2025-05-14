@@ -201,7 +201,7 @@ uv run tests/smoke_test.py --no-cleanup
 
 Available smoke test options:
 
-```
+```text
 --cpu CPU               Number of CPU cores (default: 2)
 --memory MEMORY         Memory in GB (default: 4)
 --storage STORAGE       Storage in GB (default: 25)
@@ -216,6 +216,7 @@ Available smoke test options:
 ```
 
 The smoke test performs the following steps:
+
 1. Creates a VM configuration file matching the API requirements
 2. Creates a test VM using the configuration
 3. Waits for the VM to be ready
