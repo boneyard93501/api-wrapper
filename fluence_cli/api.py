@@ -217,7 +217,7 @@ class FluenceAPIClient:
         """
         # Use correct countries endpoint according to documentation
         try:
-            return self._make_request("GET", "marketplace/v3/regions")
+            return self._make_request("GET", "marketplace/v3/countries")
         except Exception as e:
             # Handle error gracefully if endpoint not available
             if self.debug:
@@ -288,7 +288,7 @@ class FluenceAPIClient:
         """
         # Use correct hardware options endpoint
         try:
-            return self._make_request("GET", "marketplace/v3/options")
+            return self._make_request("GET", "marketplace/v3/hardware")
         except Exception as e:
             # Handle error gracefully if endpoint not available
             if self.debug:
