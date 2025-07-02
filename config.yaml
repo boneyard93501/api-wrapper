@@ -1,0 +1,38 @@
+# Configuration File
+
+# API Configuration
+api:
+  url: https://api.fluence.dev
+
+# Default VM Configuration
+vm:
+  cpu_count: 2
+  memory_gb: 4
+  storage_gb: 25
+  region: US
+  name_prefix: fvm-
+  
+  # Default OS image (Ubuntu 22.04 LTS)
+  # Use 'fvm-cli vm images' to see available images
+  os_image: https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img
+
+# Hardware Preferences
+hardware:
+  cpu_manufacturer: AMD      # AMD or Intel
+  cpu_architecture: Zen      # Zen, Skylake, etc.
+  storage_type: SSD          # HDD, SSD, or NVMe
+
+# Network Configuration
+network:
+  open_ports:
+    - port: 22
+      protocol: tcp
+    # Add more ports as needed:
+    # - port: 8080
+    #   protocol: tcp
+
+# CLI Behavior
+cli:
+  default_timeout: 300      # seconds to wait for VM to be ready
+  poll_interval: 10         # seconds between status checks
+  output_format: table      # default output format: table, json, or compact

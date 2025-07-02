@@ -97,17 +97,30 @@ class FluenceAPIClient:
                 except:
                     print(f"response: {response.text}")
             
-            # Handle error responses
+            # Handle error responses with better parsing
             if response.status_code >= 400:
-                error_message = f"API request failed: {response.status_code} {response.reason} for url: {url}"
+                error_message = f"API request failed: {response.status_code}"
                 
                 # Try to get error details from response
                 try:
-                    error_details = response.json()
-                    if isinstance(error_details, dict) and "error" in error_details:
-                        error_message += f" - Details: {json.dumps(error_details)}"
+                    error_data = response.json()
+                    if isinstance(error_data, dict) and "error" in error_data:
+                        error_detail = error_data["error"]
+                        error_message = f"API Error ({response.status_code}): {error_detail}"
+                    else:
+                        error_message += f" - {response.reason}"
                 except:
-                    pass
+                    error_message += f" - {response.reason}"
+                
+                # Add specific handling for common status codes
+                if response.status_code == 401:
+                    error_message = "Authentication failed. Please check your API key."
+                elif response.status_code == 403:
+                    error_message = "Access forbidden. Your API key may not have the required permissions."
+                elif response.status_code == 404:
+                    error_message = f"Resource not found: {url}"
+                elif response.status_code == 422:
+                    error_message = "Invalid request data. " + error_message
                 
                 raise Exception(error_message)
             
@@ -148,20 +161,42 @@ class FluenceAPIClient:
                 return vm
                 
         # VM not found
-        raise Exception(f"VM with ID {vm_id} not found in the list of VMs")
+        raise Exception(f"VM with ID {vm_id} not found")
+    
+    def get_vm_status(self, vm_ids: List[str]) -> List[Dict[str, Any]]:
+        """
+        Get status for specific VMs using the status endpoint.
         
-    def create_vm(self, name: str, config: Dict[str, Any]) -> Dict[str, Any]:
+        Args:
+            vm_ids: List of VM IDs
+            
+        Returns:
+            List of VM status objects
+        """
+        # Use the /vms/v3/status endpoint with comma-separated IDs
+        params = {
+            "ids": ",".join(vm_ids)
+        }
+        return self._make_request("GET", "vms/v3/status", params=params)
+    
+    def create_vm(self, name: str, config: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Create a new VM.
         
         Args:
-            name: VM name
+            name: VM name (note: this is stored in config, not used directly)
             config: VM configuration
             
         Returns:
-            Created VM details
+            List of created VM details
         """
-        return self._make_request("POST", "vms/v3", data=config)
+        result = self._make_request("POST", "vms/v3", data=config)
+        # API returns an array, ensure we return it as-is
+        if isinstance(result, list):
+            return result
+        else:
+            # Wrap in list if single object returned (backward compatibility)
+            return [result]
     
     def delete_vm(self, vm_id: str) -> Dict[str, Any]:
         """
@@ -173,40 +208,33 @@ class FluenceAPIClient:
         Returns:
             Deletion result
         """
-        # Use correct API format with vmIds array in request body
-        # The endpoint is DELETE /vms/v3, not DELETE /vms/v3/{vm_id}
-        # The VM ID is passed in the request body, not in the URL
         data = {
             "vmIds": [vm_id]
         }
         return self._make_request("DELETE", "vms/v3", data=data)
     
-    def scale_vm(self, vm_id: str, cpu: int, memory: int, cpu_manufacturer: str = None, cpu_architecture: str = None) -> Dict[str, Any]:
+    def update_vm(self, vm_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Scale VM resources.
+        Update VM configuration (name and/or open ports).
         
         Args:
             vm_id: VM ID
-            cpu: Number of CPU cores
-            memory: Memory in GB
-            cpu_manufacturer: CPU manufacturer (optional)
-            cpu_architecture: CPU architecture (optional)
+            updates: Dictionary with optional 'vmName' and/or 'openPorts' keys
             
         Returns:
-            Updated VM details
+            Update result
         """
-        data = {
-            "cpu": cpu,
-            "memory": memory
+        # Build update request according to API schema
+        update_data = {
+            "updates": [
+                {
+                    "id": vm_id,
+                    **updates  # This will include vmName and/or openPorts if provided
+                }
+            ]
         }
         
-        if cpu_manufacturer:
-            data["cpu_manufacturer"] = cpu_manufacturer
-        
-        if cpu_architecture:
-            data["cpu_architecture"] = cpu_architecture
-        
-        return self._make_request("PUT", f"vms/v3/{vm_id}/scale", data=data)
+        return self._make_request("PATCH", "vms/v3", data=update_data)
     
     def get_available_countries(self) -> List[str]:
         """
@@ -215,18 +243,16 @@ class FluenceAPIClient:
         Returns:
             List of country codes
         """
-        # Use correct countries endpoint according to documentation
         try:
-            return self._make_request("GET", "marketplace/v3/countries")
+            return self._make_request("GET", "marketplace/countries")
         except Exception as e:
-            # Handle error gracefully if endpoint not available
             if self.debug:
                 print(f"Error getting available countries: {str(e)}")
             return []
     
     def get_vm_pricing(self, cpu: int, memory: int, region: Optional[str] = None) -> Dict[str, Any]:
         """
-        Get VM pricing.
+        Get VM pricing estimate.
         
         Args:
             cpu: Number of CPU cores
@@ -236,10 +262,7 @@ class FluenceAPIClient:
         Returns:
             Pricing information
         """
-        # FIXED: Use the correct /vms/v3/estimate endpoint with POST method
-        # This endpoint expects a request body similar to VM creation
-        
-        # Build request body
+        # Build request body for estimate
         data = {
             "constraints": {
                 "basicConfiguration": f"cpu-{cpu}-ram-{memory}gb-storage-25gb"
@@ -254,11 +277,18 @@ class FluenceAPIClient:
             }
             
         try:
-            return self._make_request("POST", "vms/v3/estimate", data=data)
+            result = self._make_request("POST", "vms/v3/estimate", data=data)
+            
+            # Add calculated hourly price if not present
+            if "totalPricePerEpoch" in result and "hourlyPriceUsd" not in result:
+                daily_price = float(result["totalPricePerEpoch"])
+                result["hourlyPriceUsd"] = f"{daily_price / 24:.6f}"
+                result["dailyPriceUsd"] = result["totalPricePerEpoch"]
+                
+            return result
         except Exception as e:
             if self.debug:
                 print(f"Error getting pricing estimate: {e}")
-            # Return a minimal result to avoid crashing
             return {"dailyPriceUsd": "Unknown", "hourlyPriceUsd": "Unknown"}
     
     def estimate_vm(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -272,11 +302,17 @@ class FluenceAPIClient:
             Estimation result with pricing information
         """
         try:
-            return self._make_request("POST", "vms/v3/estimate", data=config)
+            result = self._make_request("POST", "vms/v3/estimate", data=config)
+            
+            # Add calculated hourly price if not present
+            if "totalPricePerEpoch" in result and "hourlyPriceUsd" not in result:
+                daily_price = float(result["totalPricePerEpoch"])
+                result["hourlyPriceUsd"] = f"{daily_price / 24:.6f}"
+                
+            return result
         except Exception as e:
             if self.debug:
                 print(f"Error getting VM cost estimate: {e}")
-            # Return a minimal result to avoid crashing
             return {"totalPricePerEpochUsd": "Unknown", "hourlyPriceUsd": "Unknown"}
     
     def get_hardware_options(self) -> Dict[str, List[Dict[str, Any]]]:
@@ -286,35 +322,149 @@ class FluenceAPIClient:
         Returns:
             Dictionary of hardware options
         """
-        # Use correct hardware options endpoint
         try:
-            return self._make_request("GET", "marketplace/v3/hardware")
+            return self._make_request("GET", "marketplace/hardware")
         except Exception as e:
-            # Handle error gracefully if endpoint not available
             if self.debug:
                 print(f"Error getting hardware options: {str(e)}")
-            # Return empty result
             return {"cpu": [], "memory": [], "storage": []}
     
     def get_basic_configurations(self) -> List[str]:
         """
-        Get available basic configurations.
-        
-        This method is called by the VM commands but the endpoint doesn't exist.
-        Instead of making an API call, return a list of standard configurations.
+        Get available basic configurations from the API.
         
         Returns:
             List of configuration strings
         """
-        # Return standard configurations instead of making an API call
-        # This bypasses the 404 error
-        return [
-            "cpu-1-ram-1gb-storage-25gb",
-            "cpu-1-ram-2gb-storage-25gb",
-            "cpu-2-ram-2gb-storage-25gb",
-            "cpu-2-ram-4gb-storage-25gb",
-            "cpu-4-ram-8gb-storage-25gb"
-        ]
+        try:
+            return self._make_request("GET", "marketplace/basic_configurations")
+        except Exception as e:
+            if self.debug:
+                print(f"Error getting basic configurations: {str(e)}")
+            # Return default configurations as fallback
+            return [
+                "cpu-1-ram-1gb-storage-25gb",
+                "cpu-1-ram-2gb-storage-25gb", 
+                "cpu-2-ram-2gb-storage-25gb",
+                "cpu-2-ram-4gb-storage-25gb",
+                "cpu-4-ram-8gb-storage-25gb"
+            ]
+    
+    def get_default_images(self) -> List[Dict[str, Any]]:
+        """
+        Get list of default OS images.
+        
+        Returns:
+            List of OS image objects with metadata
+        """
+        try:
+            return self._make_request("GET", "vms/v3/default_images")
+        except Exception as e:
+            if self.debug:
+                print(f"Error getting default images: {str(e)}")
+            return []
+    
+    def get_marketplace_offers(self, constraints: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """
+        Search marketplace for available compute offers.
+        
+        Args:
+            constraints: Optional constraints for filtering offers
+            
+        Returns:
+            List of marketplace offerings
+        """
+        data = constraints or {}
+        try:
+            return self._make_request("POST", "marketplace/offers", data=data)
+        except Exception as e:
+            if self.debug:
+                print(f"Error getting marketplace offers: {str(e)}")
+            return []
+    
+    def add_ssh_key(self, name: str, public_key: str) -> Dict[str, Any]:
+        """
+        Add a new SSH key.
+        
+        Args:
+            name: Display name for the key
+            public_key: SSH public key in OpenSSH format
+            
+        Returns:
+            Created SSH key details
+        """
+        # Validate and format SSH key
+        formatted_key = self._format_ssh_key(public_key)
+        
+        data = {
+            "name": name,
+            "publicKey": formatted_key
+        }
+        
+        return self._make_request("POST", "ssh_keys", data=data)
+    
+    def list_ssh_keys(self) -> List[Dict[str, Any]]:
+        """
+        List all SSH keys.
+        
+        Returns:
+            List of SSH key objects
+        """
+        return self._make_request("GET", "ssh_keys")
+    
+    def delete_ssh_key(self, fingerprint: str) -> Dict[str, Any]:
+        """
+        Delete an SSH key.
+        
+        Args:
+            fingerprint: SSH key fingerprint
+            
+        Returns:
+            Deletion result
+        """
+        data = {
+            "fingerprint": fingerprint
+        }
+        return self._make_request("DELETE", "ssh_keys", data=data)
+    
+    def _format_ssh_key(self, key: str) -> str:
+        """
+        Ensures SSH key is properly formatted with correct algorithm prefix.
+        
+        Args:
+            key: SSH key to format
+            
+        Returns:
+            Properly formatted SSH key
+            
+        Raises:
+            ValueError: If key format is invalid
+        """
+        key = key.strip()
+        
+        # If key already has proper format, return as-is
+        if key.startswith(('ssh-rsa ', 'ssh-ed25519 ', 'ecdsa-sha2-')):
+            return key
+        
+        # Try to detect key type from the base64 content
+        if key.startswith('AAAA'):
+            if key.startswith('AAAAC3NzaC1lZDI1NTE5'):
+                return f"ssh-ed25519 {key}"
+            elif key.startswith('AAAAB3NzaC1yc2E'):
+                return f"ssh-rsa {key}"
+            elif key.startswith('AAAAE2VjZHNhLXNoYTItbmlzdHA'):
+                # ECDSA keys need more specific detection
+                if 'bmlzdHAyNTY' in key:  # nistp256
+                    return f"ecdsa-sha2-nistp256 {key}"
+                elif 'bmlzdHAzODQ' in key:  # nistp384
+                    return f"ecdsa-sha2-nistp384 {key}"
+                elif 'bmlzdHA1MjE' in key:  # nistp521
+                    return f"ecdsa-sha2-nistp521 {key}"
+        
+        raise ValueError(
+            "Invalid SSH key format. Key must be in OpenSSH format "
+            "(ssh-rsa, ssh-ed25519, or ecdsa-sha2-*)"
+        )
 
     def wait_for_vm_status(self, vm_id: str, status: str, timeout: int = 300, 
                          check_interval: int = 5, callback: Optional[Callable] = None) -> Dict[str, Any]:
@@ -323,7 +473,7 @@ class FluenceAPIClient:
         
         Args:
             vm_id: VM ID
-            status: Status to wait for
+            status: Status to wait for (case-sensitive: Active, Launching, etc.)
             timeout: Maximum time to wait in seconds
             check_interval: Time between checks in seconds
             callback: Optional callback function to call with VM data and elapsed time
@@ -339,15 +489,25 @@ class FluenceAPIClient:
         
         while elapsed < timeout:
             try:
-                vm_data = self.get_vm(vm_id)
-                current_status = vm_data.get("status", "").lower()
+                # Use the more efficient status endpoint when available
+                vm_status_list = self.get_vm_status([vm_id])
+                if vm_status_list:
+                    vm_data = vm_status_list[0]
+                    # Get full VM data if needed
+                    if "resources" not in vm_data:
+                        vm_data = self.get_vm(vm_id)
+                else:
+                    # Fallback to getting full VM data
+                    vm_data = self.get_vm(vm_id)
+                    
+                current_status = vm_data.get("status", "")
                 
                 # If callback is provided, call it with VM data and elapsed time
                 if callback:
                     callback(vm_data, elapsed)
                 
-                # Check if VM has reached the desired status
-                if current_status.lower() == status.lower():
+                # Check if VM has reached the desired status (case-sensitive)
+                if current_status == status:
                     return vm_data
             except Exception as e:
                 if self.debug:

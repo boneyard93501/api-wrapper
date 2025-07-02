@@ -30,7 +30,7 @@ dependencies = [
 ]
 
 [project.scripts]
-flu-cli = "fluence_cli.cli:main"
+fvm-cli = "fluence_cli.cli:main"
 
 [tool.setuptools]
 packages = ["fluence_cli"]

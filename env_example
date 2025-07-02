@@ -1,8 +1,0 @@
-# Fluence API configuration
-FLUENCE_API_KEY=<your api key from console>
-
-# SSH key for VM access
-SSH_PUBLIC_KEY="<your PUBLIC ssh key string">
-
-# Optional API URL override -- double check docs to make sure that's correct
-FLUENCE_API_URL=https://api.fluence.dev

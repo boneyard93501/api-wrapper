@@ -1,5 +1,5 @@
 """
-Main CLI entry point for the Fluence CLI.
+Main CLI entry point for the Fluence VM CLI (fvm-cli).
 """
 
 import os
@@ -22,13 +22,13 @@ class FluenceCliContext:
 
 
 @click.group()
-@click.version_option(version="0.1.0")
+@click.version_option(version="0.1.0", prog_name="fvm-cli")
 @click.option("--format", "-f", type=click.Choice(["table", "json", "compact"]), 
               default="table", help="Output format (table, json, compact)")
 @click.option("--debug", is_flag=True, help="Show API requests and responses")
 @click.pass_context
 def cli(ctx, format, debug):
-    """Fluence CLI - Command line tool for managing Fluence VMs.
+    """FVM CLI - Fluence VM Command Line Interface for managing VMs.
     
     Global Options:
       --format, -f [table|json|compact]  Output format (default: table)

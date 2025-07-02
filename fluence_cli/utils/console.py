@@ -21,22 +21,33 @@ def format_vm_table(vms: List[Dict[str, Any]]) -> Table:
         Rich Table object for display
     """
     table = Table(show_header=True)
-    table.add_column("ID", style="cyan")
+    table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Name", style="green")
     table.add_column("Status", style="yellow")
     table.add_column("IP Address", style="blue")
-    table.add_column("CPU", style="magenta")
-    table.add_column("Memory", style="magenta")
+    table.add_column("CPU", style="magenta", justify="right")
+    table.add_column("Memory", style="magenta", justify="right")
     table.add_column("Region", style="red")
     
     for vm in vms:
+        # Status color based on state
+        status = vm.get("status", "")
+        if status == "Active":
+            status_display = f"[green]{status}[/green]"
+        elif status == "Terminated":
+            status_display = f"[red]{status}[/red]"
+        elif status == "Launching":
+            status_display = f"[yellow]{status}[/yellow]"
+        else:
+            status_display = status
+            
         table.add_row(
             vm.get("id", ""),
             vm.get("name", ""),
-            vm.get("status", ""),
-            vm.get("ip_address", ""),
+            status_display,
+            vm.get("ip_address", "") or "-",
             str(vm.get("cpu", "")),
-            f"{vm.get('memory', '')} GB",
+            f"{vm.get('memory', '')} GB" if vm.get('memory') else "",
             vm.get("region", "")
         )
     

@@ -1,11 +1,12 @@
-# Fluence CLI
+# FVM CLI (Fluence VM CLI)
 
-A command-line tool for managing Fluence VMs. This CLI provides a convenient interface to the Fluence API, allowing you to create, manage, and monitor virtual machines in the Fluence network.
+A command-line tool for managing Fluence VMs. FVM CLI provides a convenient interface to the Fluence API, allowing you to create, manage, and monitor virtual machines in the Fluence network.
 
 ## API Documentation
 
-This CLI interacts with the Fluence API:
+This CLI interacts with the Fluence API v3:
 - API Swagger UI: https://api.fluence.dev/swagger-ui/ 
+- API OpenAPI Spec: https://api.fluence.dev/docs/fluence-public.yaml
 - Official Documentation: https://fluence.dev/docs/build/api/overview
 
 Refer to the official documentation for detailed information about API endpoints, parameters, and responses.
@@ -26,41 +27,80 @@ nano .env
 uv pip install -e .
 
 # Run the CLI
-flu-cli --help
+fvm-cli --help
 ```
 
 ## Configuration
 
-The CLI requires configuration before use. Follow these steps to set up your environment:
+The CLI uses two configuration files:
 
-1. Create a `.env` file with your API key and SSH key:
+### 1. Environment File (.env) - For Secrets Only
+
+Create a `.env` file with your API key and SSH key:
 
 ```bash
-# Create from template
-cp env.example .env
+# Copy the template
+cp .env.example .env
 
 # Edit with your credentials
 nano .env
 ```
 
-2. Add the following to your `.env` file:
-
+Your `.env` file should contain ONLY secrets:
 ```
-FLUENCE_API_KEY=<your api key from console>
+# API Key from https://console.fluence.network/settings/api-keys
+FLUENCE_API_KEY=your_api_key_here
 
-# SSH key for VM access
-SSH_PUBLIC_KEY="<your PUBLIC ssh key string">
-
-# Optional API URL override
-FLUENCE_API_URL=https://api.fluence.dev
+# SSH Public Key (NO QUOTES!)
+SSH_PUBLIC_KEY=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... user@example.com
 ```
 
-3. Optionally create a configuration file for VM creation:
+### 2. Configuration File (config.yaml) - For Settings
+
+Create a `config.yaml` file for all other settings:
 
 ```bash
-# Create a sample config.toml file
-nano config.toml
+# Create default config
+fvm-cli config init
+
+# Edit as needed
+nano config.yaml
 ```
+
+The `config.yaml` contains all non-secret configuration:
+```yaml
+# API Configuration
+api:
+  url: https://api.fluence.dev
+
+# Default VM Configuration  
+vm:
+  cpu_count: 2
+  memory_gb: 4
+  storage_gb: 25
+  region: US
+  name_prefix: fvm-
+
+# Hardware Preferences
+hardware:
+  cpu_manufacturer: AMD
+  cpu_architecture: Zen
+
+# Network Configuration
+network:
+  open_ports:
+    - port: 22
+      protocol: tcp
+    - port: 80
+      protocol: tcp
+```
+
+The CLI looks for config.yaml in:
+1. Current directory
+2. `~/.config/fvm-cli/config.yaml`
+3. `~/.fvm-cli/config.yaml`
+
+You can also set `FVM_CONFIG_PATH` environment variable to specify a custom location.
 
 ## Global Options
 
@@ -77,49 +117,72 @@ All commands support the following global options:
 ### VM Commands
 
 ```bash
-# List all VMs
-flu-cli vm list
+# List active VMs (default)
+fvm-cli vm list
+
+# List ALL VMs including terminated ones
+fvm-cli vm list --all
+
+# Show full VM IDs without truncation
+fvm-cli vm list --full-id
+
+# Filter by status
+fvm-cli vm list --status terminated
 
 # Get details for a specific VM
-flu-cli vm get <vm_id>
+fvm-cli vm get <vm_id>
+
+# List available OS images
+fvm-cli vm images
 
 # Create a new VM
-flu-cli vm create [name] --cpu 2 --memory 4 [--wait]
+fvm-cli vm create [name] --cpu 2 --memory 4 [--wait] [--image <slug>]
 
-# Create a VM with custom configuration
-flu-cli vm create --config config.toml
+# Create a VM with custom configuration file
+fvm-cli vm create --config config.toml
 
 # Estimate VM cost without creating
-flu-cli vm estimate --cpu 2 --memory 4
+fvm-cli vm estimate --cpu 2 --memory 4 [--region US]
+
+# Update VM (name and/or ports)
+fvm-cli vm update <vm_id> --name new-name --add-port 8080/tcp --remove-port 443/tcp
 
 # Delete a VM
-flu-cli vm delete <vm_id>
-
-# Scale VM resources
-flu-cli vm scale <vm_id> --cpu 4 --memory 8
+fvm-cli vm delete <vm_id> [--force]
 ```
+
+Note: The API only supports updating VM name and open ports. CPU/memory scaling is not available.
 
 ### Marketplace Commands
 
 ```bash
 # List available countries
-flu-cli market countries
+fvm-cli market countries
+
+# List available basic configurations
+fvm-cli market configurations
 
 # Get pricing for a VM configuration
-flu-cli market pricing --cpu 2 --memory 4 [--region US]
+fvm-cli market pricing --cpu 2 --memory 4 [--region US]
 
 # List available hardware options
-flu-cli market hardware
+fvm-cli market hardware
+
+# Search marketplace offers
+fvm-cli market offers [--cpu 2] [--memory 4] [--region US] [--max-price 5.00]
 ```
 
 ### Configuration Commands
 
 ```bash
 # Show current configuration
-flu-cli config show
+fvm-cli config show
 
 # Initialize default configuration
-flu-cli config init
+fvm-cli config init
+
+# Create .env template
+fvm-cli config env
 ```
 
 ## Using Format Options
@@ -128,59 +191,77 @@ You can use global format options with any command:
 
 ```bash
 # JSON output for scripting
-flu-cli --format json vm list
+fvm-cli --format json vm list
 
 # Compact output for quick viewing
-flu-cli -f compact vm list
+fvm-cli -f compact vm list
 
 # Debug mode with JSON output
-flu-cli --debug --format json vm create test-vm --cpu 2 --memory 4
+fvm-cli --debug --format json vm create test-vm --cpu 2 --memory 4
 ```
 
 ## Using Configuration Files for VM Creation
 
-For more complex VM configurations, you can create a TOML configuration file:
+Create a JSON configuration file matching the API schema:
 
-```toml
-# Fluence VM Configuration
-
-[constraints]
-basicConfiguration = "cpu-2-ram-4gb-storage-25gb"
-
-[constraints.datacenter]
-countries = ["US"]
-
-[[constraints.hardware.cpu]]
-manufacturer = "AMD"
-architecture = "ZEN"
-
-instances = 1
-
-[vmConfiguration]
-name = "fluence-vm"
-osImage = "<your image url>"            # <- update
-sshKeys = ["your public ssh key"]       # <- update
-
-[[vmConfiguration.openPorts]]
-# opened by default
-port = 22
-protocol = "tcp"
-
-# optional
-[[vmConfiguration.openPorts]]
-port = 80
-protocol = "tcp"
+```json
+{
+  "constraints": {
+    "basicConfiguration": "cpu-2-ram-4gb-storage-25gb",
+    "datacenter": {
+      "countries": ["US"]
+    },
+    "maxTotalPricePerEpochUsd": "5.00"
+  },
+  "instances": 1,
+  "vmConfiguration": {
+    "name": "my-fluence-vm",
+    "hostname": "my-hostname",
+    "osImage": "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img",
+    "sshKeys": ["ssh-ed25519 AAAAC3NzaC1... user@example.com"],
+    "openPorts": [
+      {"port": 22, "protocol": "tcp"},
+      {"port": 80, "protocol": "tcp"},
+      {"port": 443, "protocol": "tcp"}
+    ]
+  }
+}
 ```
 
 Then create the VM with:
 
 ```bash
-flu-cli vm create --config config.toml
+fvm-cli vm create --config config.json
 ```
+
+## OS Image Selection
+
+Use the `vm images` command to see available OS images:
+
+```bash
+# List available images
+fvm-cli vm images
+
+# Create VM with specific image
+fvm-cli vm create --image ubuntu-22-04-x64
+
+# Create VM with custom image URL
+fvm-cli vm create --image https://example.com/custom-image.qcow2
+```
+
+## VM Status Values
+
+The Fluence API uses the following VM status values:
+- `Launching` - VM is being created
+- `Active` - VM is running and accessible
+- `SmallBalance` - Low account balance warning
+- `InsufficientFunds` - Account has insufficient funds
+- `Terminated` - VM has been terminated
+- `Stopped` - VM is stopped
 
 ## Running the Smoke Test
 
-The CLI includes a comprehensive smoke test that verifies all functionality by creating a test VM, running various commands, and cleaning up resources.
+The CLI includes a comprehensive smoke test that verifies all functionality:
 
 ```bash
 # Run with default settings
@@ -215,21 +296,41 @@ Available smoke test options:
 --debug                 Enable debug output
 ```
 
-The smoke test performs the following steps:
+## API Changes and Limitations
 
-1. Creates a VM configuration file matching the API requirements
-2. Creates a test VM using the configuration
-3. Waits for the VM to be ready
-4. Tests all CLI commands (list, get, market, etc.)
-5. Cleans up resources unless `--no-cleanup` is specified
+### What's New
+- **VM Images**: Use `vm images` to list available OS images with metadata
+- **Market Offers**: Search marketplace with `market offers` command
+- **Basic Configurations**: List available VM configurations with `market configurations`
+- **VM Updates**: Update VM name and ports with `vm update` command
+
+### Limitations
+- VM scaling (CPU/memory) is not supported by the API
+- VM updates are limited to name and port changes
+- Maximum 10 VM instances can be created per request
+- VMs are billed per epoch (1 epoch = 1 day)
+- Minimum rental period is 2 epochs
 
 ## Environment Variables
 
-The CLI uses the following environment variables:
+The CLI uses the following environment variables for secrets only:
 
-| Variable | Description |
-|----------|-------------|
-| `FLUENCE_API_KEY` | API key for authentication (required) |
-| `SSH_PUBLIC_KEY` | SSH public key for VM access (required) |
-| `FLUENCE_API_URL` | API URL (optional, defaults to `https://api.fluence.dev`) |
-| `DOTENV_PATH` | Custom path to .env file (optional) |
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `FLUENCE_API_KEY` | API key for authentication | Yes |
+| `SSH_PUBLIC_KEY` | SSH public key for VM access | Yes |
+| `FVM_CONFIG_PATH` | Custom path to config.yaml | No |
+| `DOTENV_PATH` | Custom path to .env file | No |
+
+All other configuration should be in `config.yaml`, not environment variables.
+
+## Error Handling
+
+The CLI provides detailed error messages for common issues:
+- `401 Unauthorized`: Check your API key
+- `403 Forbidden`: Your API key lacks required permissions
+- `404 Not Found`: Resource doesn't exist
+- `422 Unprocessable Entity`: Invalid request data
+- `500 Internal Server Error`: Server-side issue
+
+Use `--debug` flag to see full API requests and responses for troubleshooting.

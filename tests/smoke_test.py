@@ -107,12 +107,22 @@ class SmokeTest:
         """
         # First try to extract from JSON
         try:
-            # Look for JSON in the output
+            # Look for JSON array (vm create returns array)
+            json_start = output.find('[')
+            if json_start >= 0:
+                vms_data = json.loads(output[json_start:])
+                if isinstance(vms_data, list) and len(vms_data) > 0:
+                    vm = vms_data[0]
+                    # Check for vmId or id field
+                    return vm.get("vmId") or vm.get("id")
+            
+            # Look for JSON object
             json_start = output.find('{')
             if json_start >= 0:
                 vm_data = json.loads(output[json_start:])
-                if "id" in vm_data:
-                    # Preserve original capitalization from API
+                if "vmId" in vm_data:
+                    return vm_data["vmId"]
+                elif "id" in vm_data:
                     return vm_data["id"]
         except (json.JSONDecodeError, KeyError):
             pass
@@ -121,14 +131,12 @@ class SmokeTest:
         vm_id_pattern = r'VM ID:\s*(0x[0-9a-fA-F]+)'
         match = re.search(vm_id_pattern, output, re.IGNORECASE)
         if match:
-            # Preserve original capitalization
             return match.group(1)
         
         # Try plain 0x... pattern
         hex_pattern = r'0x[0-9a-fA-F]{40}'
         match = re.search(hex_pattern, output, re.IGNORECASE)
         if match:
-            # Preserve original capitalization from the output
             return match.group(0)
         
         return None
@@ -154,11 +162,18 @@ class SmokeTest:
         
         # Format SSH key if needed
         ssh_key = ssh_key.strip()
-        if ssh_key and not ssh_key.startswith('ssh-') and ssh_key.startswith('AAAA'):
+        if ssh_key and not ssh_key.startswith('ssh-') and not ssh_key.startswith('ecdsa-') and ssh_key.startswith('AAAA'):
             if ssh_key.startswith('AAAAC3NzaC1lZDI1NTE5'):
                 ssh_key = f"ssh-ed25519 {ssh_key}"
             elif ssh_key.startswith('AAAAB3NzaC1yc2E'):
                 ssh_key = f"ssh-rsa {ssh_key}"
+            elif ssh_key.startswith('AAAAE2VjZHNhLXNoYTItbmlzdHA'):
+                if 'bmlzdHAyNTY' in ssh_key:
+                    ssh_key = f"ecdsa-sha2-nistp256 {ssh_key}"
+                elif 'bmlzdHAzODQ' in ssh_key:
+                    ssh_key = f"ecdsa-sha2-nistp384 {ssh_key}"
+                elif 'bmlzdHA1MjE' in ssh_key:
+                    ssh_key = f"ecdsa-sha2-nistp521 {ssh_key}"
         
         # Build VM configuration object according to API requirements
         config = {
@@ -221,7 +236,7 @@ class SmokeTest:
         """
         self.log_step(f"Creating VM using configuration file")
         
-        cmd = ["flu-cli", "--format", "json", "vm", "create", "--config", config_file]
+        cmd = ["fvm-cli", "--format", "json", "vm", "create", "--config", config_file]
         exit_code, stdout, stderr = self.run_command(cmd)
         
         if exit_code != 0:
@@ -231,7 +246,7 @@ class SmokeTest:
                 self.log_error(f"Failed to create VM: {stderr}")
             return None
         
-        # Extract VM ID
+        # Extract VM ID from array response
         vm_id = self.extract_vm_id(stdout)
         if not vm_id:
             self.log_error("Could not extract VM ID from output")
@@ -260,7 +275,7 @@ class SmokeTest:
         
         while (time.time() - start_time) < timeout:
             # List all VMs and check status - don't print the command
-            cmd = ["flu-cli", "--format", "json", "vm", "list"]
+            cmd = ["fvm-cli", "--format", "json", "vm", "list"]
             
             # Capture stdout but don't print the command
             try:
@@ -286,10 +301,31 @@ class SmokeTest:
             
             # Extract status from JSON
             try:
-                # Find JSON in the output
+                # Find JSON in the output - it should start with [
                 json_start = stdout.find('[')
                 if json_start >= 0:
-                    vms = json.loads(stdout[json_start:])
+                    # Extract just the JSON part
+                    json_str = stdout[json_start:]
+                    # Find the end of the JSON array
+                    bracket_count = 0
+                    json_end = -1
+                    for i, char in enumerate(json_str):
+                        if char == '[':
+                            bracket_count += 1
+                        elif char == ']':
+                            bracket_count -= 1
+                            if bracket_count == 0:
+                                json_end = i + 1
+                                break
+                    
+                    if json_end > 0:
+                        json_str = json_str[:json_end]
+                        vms = json.loads(json_str)
+                    else:
+                        if self.verbose:
+                            self.log_error("Could not find end of JSON array")
+                        time.sleep(poll_interval)
+                        continue
                     
                     # Find our VM
                     for vm in vms:
@@ -301,6 +337,7 @@ class SmokeTest:
                             
                             elapsed = int(time.time() - start_time)
                             
+                            # API v3 uses "Active" status, not "running"
                             if status == "Active" and ip_address:
                                 self.log_success(f"VM is ready with IP: {ip_address} (after {elapsed}s)")
                                 
@@ -322,9 +359,17 @@ class SmokeTest:
                     else:
                         elapsed = int(time.time() - start_time)
                         self.log_warning(f"VM {vm_id} not found in list, elapsed: {elapsed}s, waiting...")
-            except json.JSONDecodeError:
+                else:
+                    if self.verbose:
+                        self.log_error("No JSON array found in output")
+                        self.log_error(f"Output was: {stdout[:200]}...")
+            except json.JSONDecodeError as e:
                 if self.verbose:
-                    self.log_error("Failed to parse VM list JSON")
+                    self.log_error(f"Failed to parse VM list JSON: {e}")
+                    self.log_error(f"JSON string was: {json_str[:200] if 'json_str' in locals() else 'N/A'}...")
+            except Exception as e:
+                if self.verbose:
+                    self.log_error(f"Unexpected error parsing VM list: {e}")
             
             time.sleep(poll_interval)
         
@@ -346,7 +391,7 @@ class SmokeTest:
         
         # Test VM list
         self.log_step("Testing VM list command")
-        cmd = ["flu-cli", "--format", "json", "vm", "list"]
+        cmd = ["fvm-cli", "--format", "json", "vm", "list"]
         exit_code, stdout, stderr = self.run_command(cmd)
         
         if exit_code != 0:
@@ -381,105 +426,80 @@ class SmokeTest:
             except json.JSONDecodeError:
                 self.log_warning("Could not parse VM list response as JSON")
         
-        # No need to try the 'vm get' command separately - we get all VM details from the list command
+        # Test VM get command
+        self.log_step("Testing VM get command")
+        get_cmd = ["fvm-cli", "--format", "json", "vm", "get", vm_id]
+        exit_code, stdout, stderr = self.run_command(get_cmd)
+        
+        if exit_code != 0:
+            self.log_warning(f"VM get command failed: {stderr}")
+            # Not critical since we get info from list
+        else:
+            self.log_success("VM get command succeeded")
+        
+        # Test VM images command
+        self.log_step("Testing VM images command")
+        images_cmd = ["fvm-cli", "--format", "json", "vm", "images"]
+        exit_code, stdout, stderr = self.run_command(images_cmd)
+        
+        if exit_code != 0:
+            self.log_warning(f"VM images command failed: {stderr}")
+        else:
+            self.log_success("VM images command succeeded")
         
         return all_commands_succeeded
     
     def test_estimate_command(self) -> bool:
         """
-        Test the VM estimate command or fallbacks if not available.
+        Test the VM estimate command.
         
         Returns:
-            True if any estimation method succeeds, False if all fail
+            True if estimation succeeds, False if it fails
         """
         self.log_step("Testing VM estimation")
         
-        # Create a temporary configuration file for the estimate
-        try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
-                config = {
-                    "constraints": {
-                        "basicConfiguration": f"cpu-{self.args.cpu}-ram-{self.args.memory}gb-storage-{self.args.storage}gb"
-                    },
-                    "instances": 1
-                }
-                
-                # Add datacenter constraint if country specified
-                if self.args.country:
-                    config["constraints"]["datacenter"] = {
-                        "countries": [self.args.country]
-                    }
-                
-                json.dump(config, tmp, indent=2)
-                tmp_path = tmp.name
-                self.temp_files.append(tmp_path)
-                
-                # Try the vm estimate command first
-                self.log_step("Testing VM estimate command")
-                estimate_cmd = ["flu-cli", "--format", "json", "vm", "estimate", "--config", tmp_path]
-                exit_code, stdout, stderr = self.run_command(estimate_cmd)
-                
-                # If the vm estimate command doesn't exist, try the market pricing command
-                if exit_code != 0 and "No such command 'estimate'" in stderr:
-                    self.log_warning("VM estimate command not found, trying market pricing command")
-                    
-                    # Build the market pricing command
-                    pricing_cmd = [
-                        "flu-cli", "--format", "json", "market", "pricing",
-                        "--cpu", str(self.args.cpu),
-                        "--memory", str(self.args.memory)
-                    ]
-                    
-                    # Add region if country is specified
-                    if self.args.country:
-                        pricing_cmd.extend(["--region", self.args.country])
-                    
-                    # Run the command
-                    exit_code, stdout, stderr = self.run_command(pricing_cmd)
-                    
-                    if exit_code != 0:
-                        self.log_warning(f"Market pricing command failed: {stderr}")
-                        self.log_warning("Skipping VM cost estimation tests")
-                        return False
-                    else:
-                        self.log_success("Market pricing command succeeded as a fallback")
-                elif exit_code != 0:
-                    self.log_warning(f"VM estimate command failed: {stderr}")
-                    self.log_warning("Skipping VM cost estimation tests")
-                    return False
-                else:
-                    self.log_success("VM estimate command succeeded")
-                
-                # Parse the result
-                try:
-                    json_start = stdout.find('{')
-                    if json_start >= 0:
-                        result = json.loads(stdout[json_start:])
-                        
-                        # Handle different response formats from vm estimate vs market pricing
-                        if "totalPricePerEpochUsd" in result:
-                            price = result["totalPricePerEpochUsd"]
-                            self.log_success(f"Estimated price per day: ${price}")
-                        elif "dailyPriceUsd" in result:
-                            price = result["dailyPriceUsd"]
-                            self.log_success(f"Estimated price per day: ${price}")
-                        elif "hourlyPriceUsd" in result:
-                            hourly = result["hourlyPriceUsd"]
-                            daily = float(hourly) * 24
-                            self.log_success(f"Estimated hourly price: ${hourly}")
-                            self.log_success(f"Calculated daily price: ${daily:.6f}")
-                        else:
-                            self.log_warning("No pricing information found in response")
-                            
-                        return True
-                except json.JSONDecodeError:
-                    self.log_warning("Could not parse pricing result as JSON")
-                    return False
-                
-        except Exception as e:
-            self.log_warning(f"Error testing VM estimation: {e}")
+        # Test the vm estimate command with parameters
+        self.log_step("Testing VM estimate command")
+        estimate_cmd = [
+            "fvm-cli", "--format", "json", "vm", "estimate",
+            "--cpu", str(self.args.cpu),
+            "--memory", str(self.args.memory),
+            "--storage", str(self.args.storage)
+        ]
+        
+        # Add region if country is specified
+        if self.args.country:
+            estimate_cmd.extend(["--region", self.args.country])
+        
+        # Run the command
+        exit_code, stdout, stderr = self.run_command(estimate_cmd)
+        
+        if exit_code != 0:
+            self.log_warning(f"VM estimate command failed: {stderr}")
             return False
+        else:
+            self.log_success("VM estimate command succeeded")
             
+            # Parse the result
+            try:
+                json_start = stdout.find('{')
+                if json_start >= 0:
+                    result = json.loads(stdout[json_start:])
+                    
+                    if "totalPricePerEpoch" in result:
+                        price = result["totalPricePerEpoch"]
+                        self.log_success(f"Estimated price per day: ${price}")
+                    elif "totalPricePerEpochUsd" in result:
+                        price = result["totalPricePerEpochUsd"]
+                        self.log_success(f"Estimated price per day: ${price}")
+                    else:
+                        self.log_warning("No pricing information found in response")
+                        
+                    return True
+            except json.JSONDecodeError:
+                self.log_warning("Could not parse pricing result as JSON")
+                return False
+        
         return True
     
     def test_marketplace_commands(self) -> bool:
@@ -493,31 +513,61 @@ class SmokeTest:
         all_commands_succeeded = True
         
         # Test VM cost estimation first
-        self.test_estimate_command()
+        if not self.test_estimate_command():
+            self.log_warning("VM estimate command failed")
         
         # Test countries command
         self.log_step("Testing countries command")
-        cmd = ["flu-cli", "--format", "json", "market", "countries"]
+        cmd = ["fvm-cli", "--format", "json", "market", "countries"]
         exit_code, stdout, stderr = self.run_command(cmd)
         
         if exit_code != 0:
             self.log_warning(f"Countries command failed: {stderr}")
-            self.log_warning("Skipping this test as the endpoint may not be implemented")
-            # Don't mark the test as failed just for this command
+            # Don't fail the test for this
         else:
             self.log_success("Countries command succeeded")
         
         # Test hardware command
         self.log_step("Testing hardware command")
-        cmd = ["flu-cli", "--format", "json", "market", "hardware"]
+        cmd = ["fvm-cli", "--format", "json", "market", "hardware"]
         exit_code, stdout, stderr = self.run_command(cmd)
         
         if exit_code != 0:
             self.log_warning(f"Hardware command failed: {stderr}")
-            self.log_warning("Skipping this test as the endpoint may not be implemented")
-            # Don't mark the test as failed just for this command
+            # Don't fail the test for this
         else:
             self.log_success("Hardware command succeeded")
+        
+        # Test configurations command
+        self.log_step("Testing configurations command")
+        cmd = ["fvm-cli", "--format", "json", "market", "configurations"]
+        exit_code, stdout, stderr = self.run_command(cmd)
+        
+        if exit_code != 0:
+            self.log_warning(f"Configurations command failed: {stderr}")
+            # Don't fail the test for this
+        else:
+            self.log_success("Configurations command succeeded")
+        
+        # Test market offers command
+        self.log_step("Testing market offers command")
+        offers_cmd = ["fvm-cli", "--format", "json", "market", "offers"]
+        
+        # Add filters if specified
+        if self.args.cpu:
+            offers_cmd.extend(["--cpu", str(self.args.cpu)])
+        if self.args.memory:
+            offers_cmd.extend(["--memory", str(self.args.memory)])
+        if self.args.country:
+            offers_cmd.extend(["--region", self.args.country])
+        
+        exit_code, stdout, stderr = self.run_command(offers_cmd)
+        
+        if exit_code != 0:
+            self.log_warning(f"Market offers command failed: {stderr}")
+            # Don't fail the test for this
+        else:
+            self.log_success("Market offers command succeeded")
         
         return all_commands_succeeded
     
@@ -528,7 +578,7 @@ class SmokeTest:
             self.log_step(f"Cleaning up VM {self.created_vm_id}")
             
             # Delete VM using the correct API format with vmIds in request body
-            cmd = ["flu-cli", "vm", "delete", self.created_vm_id, "--force"]
+            cmd = ["fvm-cli", "vm", "delete", self.created_vm_id, "--force"]
             exit_code, stdout, stderr = self.run_command(cmd)
             
             if exit_code != 0:

@@ -9,20 +9,21 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from fluence_cli.api import FluenceAPIClient
 
 
-def wait_for_vm_ready(client: FluenceAPIClient, vm_id: str, timeout: int = 300) -> Dict[str, Any]:
+def wait_for_vm_ready(client: FluenceAPIClient, vm_id: str, timeout: int = 300, target_status: str = "Active") -> Dict[str, Any]:
     """
-    Wait for a VM to be in 'running' state with progress indicator.
+    Wait for a VM to be in 'Active' state with progress indicator.
     
     Args:
         client: FluenceAPIClient instance
         vm_id: ID of the VM to wait for
         timeout: Maximum time to wait in seconds
+        target_status: Status to wait for (default: Active)
         
     Returns:
-        VM details once it's running
-    
+        VM details once it's ready
+        
     Raises:
-        TimeoutError: If VM doesn't reach 'running' state in time
+        TimeoutError: If VM doesn't reach 'Active' state in time
     """
     with Progress(
         SpinnerColumn(),
@@ -42,9 +43,10 @@ def wait_for_vm_ready(client: FluenceAPIClient, vm_id: str, timeout: int = 300) 
             )
         
         # Use the built-in wait_for_vm_status method with our callback
+        # API v3 uses "Active" status, not "running"
         return client.wait_for_vm_status(
             vm_id, 
-            "running", 
+            target_status,  # Use the provided target status
             timeout=timeout,
             check_interval=5,
             callback=update_progress
