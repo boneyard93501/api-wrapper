@@ -1,21 +1,18 @@
 # FVM CLI (Fluence VM CLI)
 
-A command-line tool for managing Fluence VMs. FVM CLI provides a convenient interface to the Fluence API, allowing you to create, manage, and monitor virtual machines in the Fluence network.
+A command-line tool for managing Fluence VMs. FVM CLI provides a convenient interface to the Fluence API, allowing you to create, manage and monitor virtual machines in the Fluence network.
 
 ## API Documentation
 
 This CLI interacts with the Fluence API v3:
 - API Swagger UI: https://api.fluence.dev/swagger-ui/ 
-- API OpenAPI Spec: https://api.fluence.dev/docs/fluence-public.yaml
 - Official Documentation: https://fluence.dev/docs/build/api/overview
-
-Refer to the official documentation for detailed information about API endpoints, parameters, and responses.
 
 ## Using from the GitHub Repository
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/fluence-cli.git
+git clone git@github.com:boneyard93501/api-wrapper.git
 cd fluence-cli
 
 # Set up environment
@@ -36,7 +33,7 @@ The CLI uses two configuration files:
 
 ### 1. Environment File (.env) - For Secrets Only
 
-Create a `.env` file with your API key and SSH key:
+Create a `.env` file with your API key, which you need to create on the console, and SSH key:
 
 ```bash
 # Copy the template
@@ -51,13 +48,13 @@ Your `.env` file should contain ONLY secrets:
 # API Key from https://console.fluence.network/settings/api-keys
 FLUENCE_API_KEY=your_api_key_here
 
-# SSH Public Key (NO QUOTES!)
+# SSH Public Key
 SSH_PUBLIC_KEY=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... user@example.com
 ```
 
 ### 2. Configuration File (config.yaml) - For Settings
 
-Create a `config.yaml` file for all other settings:
+Create/edit a `config.yaml` file for all other settings:
 
 ```bash
 # Create default config
@@ -296,21 +293,6 @@ Available smoke test options:
 --debug                 Enable debug output
 ```
 
-## API Changes and Limitations
-
-### What's New
-- **VM Images**: Use `vm images` to list available OS images with metadata
-- **Market Offers**: Search marketplace with `market offers` command
-- **Basic Configurations**: List available VM configurations with `market configurations`
-- **VM Updates**: Update VM name and ports with `vm update` command
-
-### Limitations
-- VM scaling (CPU/memory) is not supported by the API
-- VM updates are limited to name and port changes
-- Maximum 10 VM instances can be created per request
-- VMs are billed per epoch (1 epoch = 1 day)
-- Minimum rental period is 2 epochs
-
 ## Environment Variables
 
 The CLI uses the following environment variables for secrets only:
@@ -321,8 +303,6 @@ The CLI uses the following environment variables for secrets only:
 | `SSH_PUBLIC_KEY` | SSH public key for VM access | Yes |
 | `FVM_CONFIG_PATH` | Custom path to config.yaml | No |
 | `DOTENV_PATH` | Custom path to .env file | No |
-
-All other configuration should be in `config.yaml`, not environment variables.
 
 ## Error Handling
 
